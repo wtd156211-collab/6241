@@ -1,0 +1,23 @@
+{
+  "current": "v0002",
+  "now": 400,
+  "schema": 1,
+  "versions": [
+    {
+      "from": 0,
+      "retired_at": 320,
+      "revoked_at": null,
+      "state": "retired",
+      "until": 320,
+      "version": "v0001"
+    },
+    {
+      "from": 20,
+      "retired_at": null,
+      "revoked_at": null,
+      "state": "active",
+      "until": null,
+      "version": "v0002"
+    }
+  ]
+}
