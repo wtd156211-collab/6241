@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>keyturn · 密钥版本时间线</title>
+<style>
+  body { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; margin: 24px; color: #24292f; }
+  h1 { font-size: 20px; margin: 0 0 8px; }
+  #meta { margin: 0 0 12px; font-size: 14px; color: #57606a; }
+  #meta code { background: #f6f8fa; padding: 1px 6px; border-radius: 4px; }
+  #legend { display: flex; gap: 18px; align-items: center; font-size: 13px; margin-bottom: 12px; flex-wrap: wrap; }
+  #legend .chip { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 5px; vertical-align: -2px; }
+  #legend .mark { margin-right: 5px; }
+  #error { color: #cf4343; font-size: 14px; }
+  svg { display: block; max-width: 100%; height: auto; background: #fff; border: 1px solid #d0d7de; border-radius: 6px; }
+  text { font-size: 12px; fill: #24292f; }
+  .axis text { fill: #57606a; }
+</style>
+</head>
+<body>
+<h1>密钥版本时间线</h1>
+<p id="meta">加载中…</p>
+<div id="legend"></div>
+<p id="error"></p>
+<svg id="chart" role="img" aria-label="密钥版本有效区间图"></svg>
+<script>
+"use strict";
+
+var COLORS = { active: "#2f9e5f", retired: "#c9a227", revoked: "#cf4343" };
+var LABELS = { active: "在用 active", retired: "已作废 retired", revoked: "已撤销 revoked" };
+var SVGNS = "http://www.w3.org/2000/svg";
+
+function el(name, attrs, parent) {
+  var node = document.createElementNS(SVGNS, name);
+  for (var k in attrs) node.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function text(parent, x, y, content, attrs) {
+  var node = el("text", attrs || {}, parent);
+  node.setAttribute("x", x);
+  node.setAttribute("y", y);
+  node.textContent = content;
+  return node;
+}
+
+function legend() {
+  var box = document.getElementById("legend");
+  ["active", "retired", "revoked"].forEach(function (state) {
+    var item = document.createElement("span");
+    var chip = document.createElement("span");
+    chip.className = "chip";
+    chip.style.background = COLORS[state];
+    item.appendChild(chip);
+    item.appendChild(document.createTextNode(LABELS[state]));
+    box.appendChild(item);
+  });
+  box.appendChild(Object.assign(document.createElement("span"), { textContent: "◆ 轮换/上线点" })).className = "mark";
+  box.appendChild(Object.assign(document.createElement("span"), { textContent: "✕ 撤销时间点" })).className = "mark";
+  box.appendChild(Object.assign(document.createElement("span"), { textContent: "● current" })).className = "mark";
+  box.appendChild(Object.assign(document.createElement("span"), { textContent: "┆ 观察时刻 now" })).className = "mark";
+}
+
+function render(data) {
+  var versions = data.versions.slice().sort(function (a, b) {
+    return a.version < b.version ? -1 : a.version > b.version ? 1 : 0;
+  });
+  function endOf(v) {
+    if (v.until !== null) return v.until;
+    if (v.revoked_at !== null) return v.revoked_at;
+    return data.now;
+  }
+
+  var meta = document.getElementById("meta");
+  meta.textContent = "";
+  meta.appendChild(document.createTextNode("current = "));
+  meta.appendChild(Object.assign(document.createElement("code"), { textContent: String(data.current) }));
+  meta.appendChild(document.createTextNode(" · now = "));
+  meta.appendChild(Object.assign(document.createElement("code"), { textContent: String(data.now) }));
+  meta.appendChild(document.createTextNode(" · 版本数 = " + versions.length));
+
+  var rowH = 36, padL = 120, padR = 40, padT = 24, padB = 48, W = 960;
+  var t0 = 0, t1 = data.now;
+  versions.forEach(function (v) {
+    t0 = Math.min(t0, v.from);
+    t1 = Math.max(t1, endOf(v));
+  });
+  if (t1 <= t0) t1 = t0 + 1;
+  var H = padT + versions.length * rowH + padB;
+  var X = function (t) { return padL + (t - t0) / (t1 - t0) * (W - padL - padR); };
+
+  var svg = document.getElementById("chart");
+  svg.textContent = "";
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  svg.setAttribute("width", W);
+
+  // 撤销时间点：贯穿全图的虚线
+  versions.forEach(function (v) {
+    if (v.revoked_at === null) return;
+    el("line", {
+      x1: X(v.revoked_at), y1: padT - 6, x2: X(v.revoked_at), y2: padT + versions.length * rowH,
+      stroke: COLORS.revoked, "stroke-width": 1, "stroke-dasharray": "4 3", opacity: 0.55
+    }, svg);
+  });
+
+  // 横条：每版一条，盖住 [from, 终点)
+  versions.forEach(function (v, i) {
+    var y = padT + i * rowH;
+    var cy = y + rowH / 2;
+    var end = endOf(v);
+    var label = v.version + (v.version === data.current ? " ●" : "");
+    text(svg, padL - 12, cy + 4, label, { "text-anchor": "end", "font-family": "monospace" });
+
+    var bar = el("rect", {
+      x: X(v.from), y: y + 7, width: Math.max(2, X(end) - X(v.from)), height: rowH - 14,
+      rx: 4, fill: COLORS[v.state]
+    }, svg);
+    var tip = el("title", {}, bar);
+    tip.textContent = v.version + " [" + v.from + ", " + end + ") " + LABELS[v.state];
+
+    // 横条起点（轮换/上线）
+    var s = 6;
+    el("polygon", {
+      points: X(v.from) + "," + (cy - s) + " " + (X(v.from) + s) + "," + cy + " " +
+              X(v.from) + "," + (cy + s) + " " + (X(v.from) - s) + "," + cy,
+      fill: "#24292f", stroke: "#fff", "stroke-width": 1
+    }, svg);
+
+    // 撤销时间点
+    if (v.revoked_at !== null) {
+      var x = X(v.revoked_at), r = 5;
+      el("line", { x1: x - r, y1: cy - r, x2: x + r, y2: cy + r, stroke: "#7a1f1f", "stroke-width": 2.5 }, svg);
+      el("line", { x1: x - r, y1: cy + r, x2: x + r, y2: cy - r, stroke: "#7a1f1f", "stroke-width": 2.5 }, svg);
+    }
+  });
+
+  // 观察时刻 now
+  var axisY = padT + versions.length * rowH;
+  el("line", {
+    x1: X(data.now), y1: padT - 6, x2: X(data.now), y2: axisY,
+    stroke: "#57606a", "stroke-width": 1, "stroke-dasharray": "2 3"
+  }, svg);
+  text(svg, X(data.now), padT - 10, "now=" + data.now, { "text-anchor": "middle", fill: "#57606a" });
+
+  // 横轴：时间（秒）
+  var axis = el("g", { "class": "axis" }, svg);
+  el("line", { x1: padL, y1: axisY + 10, x2: W - padR, y2: axisY + 10, stroke: "#8c959f" }, axis);
+  var ticks = 6;
+  for (var i = 0; i <= ticks; i++) {
+    var t = Math.round(t0 + (t1 - t0) * i / ticks);
+    el("line", { x1: X(t), y1: axisY + 10, x2: X(t), y2: axisY + 15, stroke: "#8c959f" }, axis);
+    text(axis, X(t), axisY + 28, String(t), { "text-anchor": "middle" });
+  }
+  text(axis, W - padR, axisY + 42, "时间（秒）", { "text-anchor": "end" });
+}
+
+legend();
+fetch("data.json")
+  .then(function (resp) {
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    return resp.json();
+  })
+  .then(render)
+  .catch(function (err) {
+    document.getElementById("meta").textContent = "";
+    document.getElementById("error").textContent =
+      "读不到 data.json（先跑 python -m keyturn page <状态文件> <时刻> web/data.json）：" + err.message;
+  });
+</script>
+</body>
+</html>
