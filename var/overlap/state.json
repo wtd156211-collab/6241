@@ -1,0 +1,39 @@
+{
+  "current": null,
+  "now": 2220,
+  "schema": 1,
+  "versions": [
+    {
+      "from": 0,
+      "retired_at": 1500,
+      "revoked_at": null,
+      "state": "retired",
+      "until": 1500,
+      "version": "v0001"
+    },
+    {
+      "from": 900,
+      "retired_at": 2000,
+      "revoked_at": null,
+      "state": "retired",
+      "until": 2000,
+      "version": "v0002"
+    },
+    {
+      "from": 1400,
+      "retired_at": 2100,
+      "revoked_at": null,
+      "state": "retired",
+      "until": 2100,
+      "version": "v0003"
+    },
+    {
+      "from": 2100,
+      "retired_at": null,
+      "revoked_at": 2200,
+      "state": "revoked",
+      "until": null,
+      "version": "v0004"
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>keyturn 密钥版本时间线</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 24px; color: #222; }
+  h1 { font-size: 18px; }
+  #meta { margin: 8px 0 16px; font-size: 14px; }
+  #legend { display: flex; gap: 18px; margin-bottom: 12px; font-size: 13px; }
+  .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px;
+            margin-right: 5px; vertical-align: -1px; }
+  #err { color: #b00; }
+  svg { border: 1px solid #ddd; background: #fff; }
+  text { font-size: 12px; }
+</style>
+</head>
+<body>
+<h1>密钥版本时间线</h1>
+<div id="meta"></div>
+<div id="legend">
+  <span><span class="swatch" style="background:#2e9e5b"></span>在用 (active)</span>
+  <span><span class="swatch" style="background:#c9a227"></span>已作废 (retired)</span>
+  <span><span class="swatch" style="background:#d64545"></span>已撤销 (revoked)</span>
+  <span>&#9670; 轮换点（横条起点）&nbsp;&nbsp;&#9632; 撤销点</span>
+</div>
+<div id="err"></div>
+<div id="chart"></div>
+<script>
+const COLORS = { active: "#2e9e5b", retired: "#c9a227", revoked: "#d64545" };
+const NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs, parent) {
+  const node = document.createElementNS(NS, tag);
+  for (const k in attrs) node.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(node);
+  return node;
+}
+function label(svg, x, y, text, anchor) {
+  const t = el("text", { x, y, "text-anchor": anchor || "start" }, svg);
+  t.textContent = text;
+  return t;
+}
+
+fetch("data.json").then(r => {
+  if (!r.ok) throw new Error("data.json: HTTP " + r.status);
+  return r.json();
+}).then(data => {
+  const versions = data.versions.slice().sort((a, b) =>
+    a.version.localeCompare(b.version));
+  const endOf = v => v.until !== null ? v.until
+                   : (v.revoked_at !== null ? v.revoked_at : data.now);
+  const t0 = Math.min(...versions.map(v => v.from));
+  const t1 = Math.max(data.now, ...versions.map(endOf));
+  const span = Math.max(1, t1 - t0);
+
+  const W = 960, ML = 90, MR = 30, MT = 34, ROW = 34, AXH = 30;
+  const H = MT + ROW * versions.length + AXH;
+  const X = t => ML + (t - t0) / span * (W - ML - MR);
+
+  const meta = document.getElementById("meta");
+  meta.textContent = "观察时刻 now = " + data.now +
+    "　当前版本 current = " + (data.current === null ? "（无）" : data.current);
+
+  const svg = el("svg", { width: W, height: H,
+                          viewBox: "0 0 " + W + " " + H },
+                 document.getElementById("chart"));
+
+  // 时间轴（秒）
+  const axisY = MT + ROW * versions.length + 6;
+  el("line", { x1: ML, y1: axisY, x2: W - MR, y2: axisY, stroke: "#999" }, svg);
+  const ticks = 8;
+  for (let i = 0; i <= ticks; i++) {
+    const t = t0 + span * i / ticks;
+    const x = X(t);
+    el("line", { x1: x, y1: axisY, x2: x, y2: axisY + 5, stroke: "#999" }, svg);
+    label(svg, x, axisY + 18, String(Math.round(t)), "middle");
+  }
+  label(svg, W - MR, axisY + 18, "s", "end");
+
+  versions.forEach((v, i) => {
+    const y = MT + i * ROW, barH = 18, yMid = y + barH / 2;
+    // 版本标签 + current 标记
+    const name = v.version + (v.version === data.current ? " ●" : "");
+    const lt = label(svg, ML - 10, yMid + 4, name, "end");
+    if (v.version === data.current) lt.setAttribute("font-weight", "bold");
+    // 横条：盖住 [from, 终点)
+    const x0 = X(v.from), x1 = X(endOf(v));
+    el("rect", { x: x0, y: y, width: Math.max(1, x1 - x0), height: barH,
+                 fill: COLORS[v.state], opacity: 0.85 }, svg);
+    // 轮换点：横条起点
+    el("path", { d: "M " + x0 + " " + (y - 6) + " l 5 7 l -10 0 z",
+                 fill: "#333" }, svg);
+    // 撤销点
+    if (v.revoked_at !== null) {
+      const xr = X(v.revoked_at);
+      el("rect", { x: xr - 4, y: y - 6, width: 8, height: 8,
+                   fill: "#d64545", stroke: "#7a1f1f" }, svg);
+      el("line", { x1: xr, y1: y - 6, x2: xr, y2: y + barH,
+                   stroke: "#7a1f1f", "stroke-dasharray": "3 2" }, svg);
+    }
+    // 区间标注
+    label(svg, x0 + 4, yMid + 4, v.from + " → " + endOf(v), "start")
+      .setAttribute("fill", "#fff");
+  });
+}).catch(e => {
+  document.getElementById("err").textContent =
+    "加载 data.json 失败：" + e.message +
+    "（先运行 python -m keyturn page <状态文件> <时刻> web/data.json）";
+});
+</script>
+</body>
+</html>
